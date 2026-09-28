@@ -12,6 +12,7 @@ eval_video/
 **/.DS_Store
 *.bac
 doc/
+doc/
 
 # eval result
 eval_result/
