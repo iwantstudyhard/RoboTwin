@@ -21,6 +21,19 @@ import yaml
 
 
 ROBOTWIN_ROOT = Path(__file__).resolve().parents[1]
+WORKSPACE = Path(os.path.expandvars(os.environ.get("WORKSPACE") or str(ROBOTWIN_ROOT.parent))).expanduser()
+if not WORKSPACE.is_absolute():
+    WORKSPACE = ROBOTWIN_ROOT.parent / WORKSPACE
+WORKSPACE = WORKSPACE.resolve()
+
+
+def workspace_path(value: str | os.PathLike[str]) -> Path:
+    path = Path(os.path.expandvars(os.fspath(value))).expanduser()
+    return (path if path.is_absolute() else WORKSPACE / path).resolve()
+
+
+ROBOTWIN_ROOT = workspace_path(os.environ.get("ROBOTWIN_DIR") or os.environ.get("EVAL_WORKDIR") or ROBOTWIN_ROOT)
+os.chdir(ROBOTWIN_ROOT)
 DEFAULT_XPOLICYLAB_ROOT = ROBOTWIN_ROOT / "XPolicyLab"
 TASK_CONFIG_ROOT = ROBOTWIN_ROOT / "env_cfg" / "task_config"
 
@@ -152,9 +165,18 @@ def build_eval_save_dir(
     task_config: str,
     ckpt_setting: Any,
     current_time: str,
+    output_dir: str | None = None,
 ) -> Path:
+    if output_dir:
+        output_root = workspace_path(output_dir)
+    elif os.environ.get("ROBOTWIN_EVAL_RUN_DIR"):
+        output_root = workspace_path(os.environ["ROBOTWIN_EVAL_RUN_DIR"]) / "eval_results"
+    elif os.environ.get("OUTPUT_DIR"):
+        output_root = workspace_path(os.environ["OUTPUT_DIR"]) / "eval_outputs"
+    else:
+        output_root = workspace_path(os.environ.get("OUTPUT_BASE") or "outputs/eval_outputs")
     return (
-        Path("eval_result")
+        output_root
         / task_name
         / policy_name
         / task_config
@@ -285,9 +307,9 @@ def main(usr_args: dict[str, Any]) -> None:
     usr_args["instruction_type"] = instruction_type
 
     save_dir = build_eval_save_dir(
-        task_name, policy_name, task_config, ckpt_setting, current_time
+        task_name, policy_name, task_config, ckpt_setting, current_time, usr_args.get("output_dir")
     )
-    save_dir.mkdir(parents=True, exist_ok=True)
+    save_dir.mkdir(parents=True, exist_ok=False)
     video_size = None
 
     if args["eval_video_log"]:
@@ -349,9 +371,9 @@ def main_batch(usr_args: dict[str, Any]) -> None:
     usr_args["instruction_type"] = instruction_type
 
     save_dir = build_eval_save_dir(
-        task_name, policy_name, task_config, ckpt_setting, current_time
+        task_name, policy_name, task_config, ckpt_setting, current_time, usr_args.get("output_dir")
     )
-    save_dir.mkdir(parents=True, exist_ok=True)
+    save_dir.mkdir(parents=True, exist_ok=False)
     video_size = None
 
     if args["eval_video_log"]:
@@ -1349,6 +1371,7 @@ def parse_args() -> dict[str, Any]:
     parser.add_argument("--additional_info", default="")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--task_config", default="demo_clean")
+    parser.add_argument("--output_dir", default=None)
     parser.add_argument("--test_num", type=int, default=None)
     parser.add_argument("--instruction_type", choices=("seen", "unseen"))
     parser.add_argument("--expert_check", default=None)
@@ -1370,7 +1393,8 @@ def parse_args() -> dict[str, Any]:
         "seed": args.seed,
         "task_config": args.task_config,
         "instruction_type": args.instruction_type,
-        "xpolicylab_root": str(Path(args.root_dir).resolve() / "XPolicyLab"),
+        "xpolicylab_root": str(workspace_path(args.root_dir) / "XPolicyLab"),
+        "output_dir": args.output_dir,
         "eval_batch": parse_bool(args.eval_batch),
     }
 

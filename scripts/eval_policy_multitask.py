@@ -33,6 +33,18 @@ from rich.progress import (
 
 
 ROBOTWIN_ROOT = Path(__file__).resolve().parents[1]
+WORKSPACE = Path(os.path.expandvars(os.environ.get("WORKSPACE") or str(ROBOTWIN_ROOT.parent))).expanduser()
+if not WORKSPACE.is_absolute():
+    WORKSPACE = ROBOTWIN_ROOT.parent / WORKSPACE
+WORKSPACE = WORKSPACE.resolve()
+
+
+def workspace_path(value: str | os.PathLike[str]) -> Path:
+    path = Path(os.path.expandvars(os.fspath(value))).expanduser()
+    return (path if path.is_absolute() else WORKSPACE / path).resolve()
+
+
+ROBOTWIN_ROOT = workspace_path(os.environ.get("ROBOTWIN_DIR") or os.environ.get("EVAL_WORKDIR") or ROBOTWIN_ROOT)
 TASK_CONFIG_ROOT = ROBOTWIN_ROOT / "env_cfg" / "task_config"
 EVAL_OVERRIDE_FLAGS = {
     "eval_batch": "--eval_batch",
@@ -282,7 +294,7 @@ def parse_args() -> argparse.Namespace:
             "is shared by all listed ports."
         ),
     )
-    parser.add_argument("--output-dir", type=Path, default=Path("eval_result/multitask"))
+    parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--fail-fast", action="store_true")
     parser.add_argument(
         "--stream-output",
@@ -295,7 +307,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def load_config(config_path: Path) -> dict[str, Any]:
-    path = config_path.expanduser().resolve()
+    path = workspace_path(config_path)
     if not path.is_file():
         raise ConfigError(f"Config file does not exist: {path}")
     with path.open("r", encoding="utf-8") as file:
@@ -707,9 +719,12 @@ def scheduler_settings(
     remote_enabled: bool,
     remote_endpoints: list[PolicyEndpoint],
 ) -> dict[str, Any]:
-    output_dir = cli.output_dir.expanduser()
-    if not output_dir.is_absolute():
-        output_dir = ROBOTWIN_ROOT / output_dir
+    if cli.output_dir is not None:
+        output_dir = workspace_path(cli.output_dir)
+    elif os.environ.get("OUTPUT_DIR"):
+        output_dir = workspace_path(os.environ["OUTPUT_DIR"]) / "eval_outputs"
+    else:
+        output_dir = workspace_path(os.environ.get("OUTPUT_BASE") or "outputs/eval_outputs")
     return {
         "output_dir": output_dir,
         "stream_output": cli.stream_output,
@@ -861,6 +876,9 @@ def run_job(
         override_values = override_args(job.overrides)
         args_path.write_text("".join(f"{value}\n" for value in override_values), encoding="utf-8")
         environment = os.environ.copy()
+        environment["WORKSPACE"] = str(WORKSPACE)
+        environment["ROBOTWIN_DIR"] = str(ROBOTWIN_ROOT)
+        environment["ROBOTWIN_EVAL_RUN_DIR"] = str(run_dir)
         environment["CUDA_VISIBLE_DEVICES"] = gpu_id
         environment["ROBOTWIN_EVAL_ARGS_FILE"] = str(args_path)
         environment["ROBOTWIN_SUPPRESS_EVAL_CONFIG"] = "1"
@@ -974,7 +992,8 @@ def run_schedule(
 ) -> int:
     run_id = datetime.now().strftime("%Y-%m-%d_%H-%M-%S_%f")
     run_dir = Path(settings["output_dir"]) / run_id
-    (run_dir / "logs").mkdir(parents=True, exist_ok=False)
+    run_dir.mkdir(parents=True, exist_ok=False)
+    (run_dir / "logs").mkdir()
     (run_dir / "jobs").mkdir()
 
     slots: queue.Queue[str] = queue.Queue()

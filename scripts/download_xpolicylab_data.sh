@@ -13,8 +13,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-TARGET_ROOT="${ROBOTWIN_DATA_ROOT:-${XPOLICYLAB_DATA_ROOT:-${PROJECT_ROOT}/data}}"
-ARCHIVE_ROOT="${HF_ARCHIVE_CACHE:-${PROJECT_ROOT}/data/download_cache}"
 HF_REPO_ID="${HF_REPO_ID:-TianxingChen/RoboTwin2.0}"
 HF_REVISION="${HF_REVISION:-main}"
 HF_ARCHIVE_NAME="${HF_ARCHIVE_NAME:-demo_clean.zip}"
@@ -34,9 +32,9 @@ Usage: bash scripts/download_xpolicylab_data.sh [task ...]
 Downloads dataset/<task>/demo_clean.zip from TianxingChen/RoboTwin2.0 and
 normalizes each archive to RoboTwin's native collection layout. The archive
 name without .zip is used as the task config directory:
-  data/demo_clean/<task>/aloha_agilex/data/episode_0000000.hdf5
-  data/demo_clean/<task>/aloha_agilex/video/episode_0000000.mp4
-  data/demo_clean/<task>/aloha_agilex/instruction/episode_0000000.json
+  $WORKSPACE/datasets/RoboTwin/demo_clean/<task>/aloha_agilex/data/episode_0000000.hdf5
+  $WORKSPACE/datasets/RoboTwin/demo_clean/<task>/aloha_agilex/video/episode_0000000.mp4
+  $WORKSPACE/datasets/RoboTwin/demo_clean/<task>/aloha_agilex/instruction/episode_0000000.json
 
 Legacy videos/instructions directories and episode0/episode_0 filenames are
 normalized to video/instruction and seven-digit episode names.
@@ -45,9 +43,10 @@ With no task arguments, every task containing the selected archive is
 downloaded. Pass task names to download only a subset.
 
 Environment:
-  ROBOTWIN_DATA_ROOT    extraction root (default: ./data)
+  WORKSPACE            workspace root (default: parent of RoboTwin)
+  ROBOTWIN_DATA_ROOT    extraction root (default: $WORKSPACE/datasets/RoboTwin)
   XPOLICYLAB_DATA_ROOT  legacy alias for ROBOTWIN_DATA_ROOT
-  HF_ARCHIVE_CACHE      ZIP cache (default: ./data/download_cache)
+  HF_ARCHIVE_CACHE      ZIP cache (default: <extraction root>/download_cache)
   HF_REPO_ID            default: TianxingChen/RoboTwin2.0
   HF_REVISION           branch, tag, commit, or refs/pr/N (default: main)
   HF_ARCHIVE_NAME       archive selected per task (default: demo_clean.zip)
@@ -83,6 +82,29 @@ if ! command -v python3 >/dev/null 2>&1; then
     echo "python3 not found" >&2
     exit 1
 fi
+
+export WORKSPACE="${WORKSPACE:-$(dirname "$PROJECT_ROOT")}"
+mapfile -t resolved_paths < <(python3 - "$PROJECT_ROOT" <<'PY'
+import os
+import sys
+from pathlib import Path
+root = Path(os.path.expandvars(os.environ["WORKSPACE"])).expanduser()
+if not root.is_absolute():
+    root = Path(sys.argv[1]).parent / root
+root = root.resolve()
+def resolve(value):
+    path = Path(os.path.expandvars(value)).expanduser()
+    return (path if path.is_absolute() else root / path).resolve()
+data_root = resolve(os.environ.get("ROBOTWIN_DATA_ROOT") or os.environ.get("XPOLICYLAB_DATA_ROOT") or "datasets/RoboTwin")
+print(root)
+print(data_root)
+print(resolve(os.environ.get("HF_ARCHIVE_CACHE") or str(data_root / "download_cache")))
+PY
+)
+[ "${#resolved_paths[@]}" -eq 3 ] || exit 1
+export WORKSPACE="${resolved_paths[0]}"
+TARGET_ROOT="${resolved_paths[1]}"
+ARCHIVE_ROOT="${resolved_paths[2]}"
 
 if ! python3 -c 'import huggingface_hub' >/dev/null 2>&1; then
     echo "Installing huggingface_hub..."

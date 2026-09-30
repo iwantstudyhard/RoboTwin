@@ -30,6 +30,18 @@ from rich.progress import (
 
 
 ROBOTWIN_ROOT = Path(__file__).resolve().parents[1]
+WORKSPACE = Path(os.path.expandvars(os.environ.get("WORKSPACE") or str(ROBOTWIN_ROOT.parent))).expanduser()
+if not WORKSPACE.is_absolute():
+    WORKSPACE = ROBOTWIN_ROOT.parent / WORKSPACE
+WORKSPACE = WORKSPACE.resolve()
+
+
+def workspace_path(value: str | os.PathLike[str]) -> Path:
+    path = Path(os.path.expandvars(os.fspath(value))).expanduser()
+    return (path if path.is_absolute() else WORKSPACE / path).resolve()
+
+
+ROBOTWIN_ROOT = workspace_path(os.environ.get("ROBOTWIN_DIR") or os.environ.get("EVAL_WORKDIR") or ROBOTWIN_ROOT)
 
 
 class ConfigError(ValueError):
@@ -116,6 +128,7 @@ def parse_args() -> argparse.Namespace:
         description="Launch an XPolicyLab policy-server pool from RoboTwin."
     )
     parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -178,11 +191,11 @@ def normalize_checkpoint(value: str) -> str:
     path = Path(expanded)
     if path.is_absolute() or "/" not in expanded:
         return expanded
-    return str((ROBOTWIN_ROOT / path).resolve())
+    return str(workspace_path(path))
 
 
-def load_settings(config_path: Path) -> ServerSettings:
-    path = config_path.expanduser().resolve()
+def load_settings(config_path: Path, output_dir: Path | None = None) -> ServerSettings:
+    path = workspace_path(config_path)
     if not path.is_file():
         raise ConfigError(f"Config file does not exist: {path}")
     try:
@@ -242,9 +255,12 @@ def load_settings(config_path: Path) -> ServerSettings:
     if base_port + server_count - 1 > 65535:
         raise ConfigError("The generated server port range exceeds 65535.")
 
-    output_dir = Path(str(config.get("output_dir", "eval_result/policy_servers"))).expanduser()
-    if not output_dir.is_absolute():
-        output_dir = ROBOTWIN_ROOT / output_dir
+    if output_dir is not None:
+        output_dir = workspace_path(output_dir)
+    elif os.environ.get("OUTPUT_DIR"):
+        output_dir = workspace_path(os.environ["OUTPUT_DIR"]) / "eval_outputs"
+    else:
+        output_dir = workspace_path(os.environ.get("OUTPUT_BASE") or config.get("output_dir") or "outputs/eval_outputs")
 
     settings = ServerSettings(
         policy_name=policy_name,
@@ -576,7 +592,7 @@ def run_servers(settings: ServerSettings, instances: list[ServerInstance]) -> in
 def main() -> int:
     args = parse_args()
     try:
-        settings = load_settings(args.config)
+        settings = load_settings(args.config, args.output_dir)
         instances = build_instances(settings)
         if args.dry_run:
             print_plan(settings, instances)

@@ -1,4 +1,16 @@
 import sys
+import os
+import shutil
+from pathlib import Path
+
+ROBOTWIN_ROOT = Path(__file__).resolve().parents[1]
+WORKSPACE = Path(os.path.expandvars(os.environ.get("WORKSPACE") or str(ROBOTWIN_ROOT.parent))).expanduser()
+if not WORKSPACE.is_absolute():
+    WORKSPACE = ROBOTWIN_ROOT.parent / WORKSPACE
+WORKSPACE = WORKSPACE.resolve()
+robotwin_dir = Path(os.path.expandvars(os.environ.get("ROBOTWIN_DIR") or os.environ.get("EVAL_WORKDIR") or str(ROBOTWIN_ROOT))).expanduser()
+ROBOTWIN_ROOT = (robotwin_dir if robotwin_dir.is_absolute() else WORKSPACE / robotwin_dir).resolve()
+os.chdir(ROBOTWIN_ROOT)
 
 sys.path.append("./")
 
@@ -12,7 +24,6 @@ import importlib
 import json
 import re
 import traceback
-import os
 import time
 from argparse import ArgumentParser
 
@@ -141,13 +152,24 @@ def main(task_name=None, task_config=None):
     # Directory name follows the embodiment, e.g. aloha-agilex -> aloha_agilex,
     # ARX-X5 -> arx_x5, mixed dual-arm a+b -> a_b.
     embodiment_dir = re.sub(r"[^A-Za-z0-9_]+", "_", embodiment_name).lower()
+    data_root = Path(os.path.expandvars(
+        os.environ.get("ROBOTWIN_DATA_ROOT") or os.environ.get("XPOLICYLAB_DATA_ROOT") or args["save_path"]
+    )).expanduser()
+    data_root = (data_root if data_root.is_absolute() else WORKSPACE / data_root).resolve()
     args["save_path"] = os.path.join(
-        args["save_path"],
+        str(data_root),
         args["task_config"],
         str(args["task_name"]),
         embodiment_dir,
     )
-    run(task, args)
+    try:
+        run(task, args)
+    finally:
+        # Preserve cleanup of all embodiment caches for this task, using its data root.
+        for cache_path in Path(args["save_path"]).parent.glob("*/.cache"):
+            if not cache_path.resolve().is_relative_to(data_root) or cache_path.is_symlink():
+                raise ValueError(f"Cache path escapes the dataset root: {cache_path}")
+            shutil.rmtree(cache_path)
 
 
 def run(TASK_ENV, args):

@@ -1,5 +1,5 @@
 # Run this config on the policy-server host:
-# bash scripts/eval_policy.sh serve --config env_cfg/eval/remote_server.yml
+# bash "$ROBOTWIN_DIR/scripts/eval_policy.sh" serve --config "$ROBOTWIN_DIR/env_cfg/eval/remote_server.yml"
 # Replace every <...> placeholder before running it.
 
 policy_name: "<policy_name>"

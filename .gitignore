@@ -17,6 +17,10 @@ doc/
 # eval result
 eval_result/
 
+# Main workspace's synchronized evaluation client (source is versioned there).
+/script/eval_policy_client_lingbotvla.py
+/script/deploy/
+
 # Code Generation
 assets/*
 !assets/_download.py

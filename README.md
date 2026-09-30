@@ -86,6 +86,13 @@ See [RoboTwin 2.0 Tasks Doc](https://robotwin-platform.github.io/doc/tasks/index
 
 # 🧑🏻‍💻 Usage 
 
+```bash
+export WORKSPACE="$(cd .. && pwd)"  # when currently in RoboTwin
+export ROBOTWIN_DIR="$WORKSPACE/RoboTwin"
+export OUTPUT_DIR="$WORKSPACE/outputs"
+```
+
+
 ## Document
 
 > Full usage details live in the [RoboTwin Document](https://robotwin-platform.github.io/doc/) — start from [Usage](https://robotwin-platform.github.io/doc/usage/index.html). Prefer the Doc over this README when anything conflicts.
@@ -131,7 +138,7 @@ Downloads and extractions both run in parallel (defaults: 8 workers each). As so
 HF_MAX_WORKERS=8 HF_EXTRACT_WORKERS=16 bash scripts/download_xpolicylab_data.sh
 ```
 
-Downloads land under `data/demo_clean/<task_name>/aloha_agilex/data/` (note: self-collected data lands under `data/<task_config>/...` instead).
+In this workspace, downloads land under `$WORKSPACE/datasets/RoboTwin/demo_clean/<task_name>/aloha_agilex/data/`. Collection uses the same root with its selected `<task_config>`. `WORKSPACE` defaults to the parent of this checkout. `ROBOTWIN_DATA_ROOT` (legacy alias `XPOLICYLAB_DATA_ROOT`) overrides the trajectory root; `HF_ARCHIVE_CACHE` overrides the ZIP cache, which defaults to `<trajectory root>/download_cache/`. Relative local overrides resolve against `WORKSPACE`.
 
 ## 2. Task Running and Data Collection (Optional)
 For custom task configs, domain randomization, or embodiment setups, collect data yourself. The following command will first search for a random seed for the target collection quantity, and then replay the seed to collect data.
@@ -144,21 +151,21 @@ bash collect_data.sh ${task_name} ${task_config} ${gpu_id}
 Collected demonstrations are saved directly in the XPolicyLab trajectory format — no extra conversion step is needed:
 
 ```text
-data/<task_config>/<task_name>/<embodiment>/data/episode_0000000.hdf5
+$WORKSPACE/datasets/RoboTwin/<task_config>/<task_name>/<embodiment>/data/episode_0000000.hdf5
 ```
 
 `<embodiment>` follows the `embodiment` field of the task config (`aloha_agilex` for the default `aloha-agilex` setup).
 
 ## 3. Convert to LeRobot (Optional)
 
-Many XPolicyLab policies train on LeRobot datasets. After you have XPolicyLab-format HDF5 under `data/<task_config>/<task>/<embodiment>/data/` (from download or collection), convert with the shared scripts in `XPolicyLab/scripts/`. Those scripts already decode through `decode_image_bit` — do not replace that with `cv2.imdecode` / PIL if you fork them. Stored bits come in two byte formats; only `decode_image_bit` tells them apart.
+Many XPolicyLab policies train on LeRobot datasets. After you have XPolicyLab-format HDF5 under `$WORKSPACE/datasets/RoboTwin/<task_config>/<task>/<embodiment>/data/` (from download or collection), convert with the shared scripts in `XPolicyLab/scripts/`. Those scripts already decode through `decode_image_bit` — do not replace that with `cv2.imdecode` / PIL if you fork them. Stored bits come in two byte formats; only `decode_image_bit` tells them apart.
 
-Patterns are `<task_config>.<task>.<embodiment>` and may use `*` wildcards. They resolve against `data/` next to the RoboTwin root (for example `demo_clean.*.aloha_agilex`). Keep `--data_type` as the default `RoboDojo` — RoboTwin XPolicyLab trajectories share that HDF5 layout.
+Patterns are `<task_config>.<task>.<embodiment>` and may use `*` wildcards. They resolve against `ROBOTWIN_DATA_ROOT` (default `$WORKSPACE/datasets/RoboTwin/`) (for example `demo_clean.*.aloha_agilex`). Keep `--data_type` as the default `RoboDojo` — RoboTwin XPolicyLab trajectories share that HDF5 layout.
 
-Run in an environment that already has the matching LeRobot package (v2.1 vs v3.0). Conversion writes under `HF_LEROBOT_HOME` (default `~/.cache/huggingface/lerobot`); point it at a large disk if needed:
+Run in an environment that already has the matching LeRobot package (v2.1 vs v3.0). Conversion writes under `HF_LEROBOT_HOME` (default `$WORKSPACE/datasets` in this workspace); point it at a large disk if needed:
 
 ```bash
-export HF_LEROBOT_HOME=/path/with/enough/space/lerobot
+export HF_LEROBOT_HOME="$WORKSPACE/datasets"
 
 # LeRobot v2.1 — all demo_clean tasks
 python XPolicyLab/scripts/transform_lerobot_v21_format.py \
@@ -195,7 +202,7 @@ All evaluation goes through `scripts/eval_policy.sh`. The policy adapter must ex
 
 ```bash
 bash scripts/eval_policy.sh multitask \
-  --config env_cfg/eval/all_tasks.yml \
+  --config "$ROBOTWIN_DIR/env_cfg/eval/all_tasks.yml" \
   --policy-name <policy_name> \
   --ckpt-name <checkpoint> \
   --env-cfg-type arx_x5 \
@@ -204,17 +211,17 @@ bash scripts/eval_policy.sh multitask \
   --action-type <action_type>
 ```
 
-Add `--dry-run` to validate the schedule without launching anything. Results are written to `eval_result/multitask/` by default.
+Add `--dry-run` to validate the schedule without launching anything. Results are written to `$OUTPUT_DIR/eval_outputs/<timestamp>/` by default (`OUTPUT_DIR` defaults to `$WORKSPACE/outputs`). The scheduler retains `logs/`, `jobs/`, and `summary.json`; task results and videos are under the same run's `eval_results/<task>/<policy>/<task_config>/<checkpoint>/<timestamp>/`. Standalone policy servers also write their logs under `eval_outputs/<timestamp>/`. Explicit `--output-dir` sets the category root directly, without another `eval_outputs` suffix. Single-task clients support `--output_dir` for the task result root. Legacy `OUTPUT_BASE` remains a category-root alias.
 
 **Split deployment (remote policy server + local simulator).** Start the server pool on the policy host, then point the local scheduler at it:
 
 ```bash
 # On the policy-server host (fill in the placeholders first):
-bash scripts/eval_policy.sh serve --config env_cfg/eval/remote_server.yml
+bash scripts/eval_policy.sh serve --config "$ROBOTWIN_DIR/env_cfg/eval/remote_server.yml"
 
 # On the simulator host:
 bash scripts/eval_policy.sh multitask \
-  --config env_cfg/eval/all_tasks.yml \
+  --config "$ROBOTWIN_DIR/env_cfg/eval/all_tasks.yml" \
   --policy-name <policy_name> \
   --env-cfg-type arx_x5 \
   --eval-env-conda-env <robotwin_env> \
